@@ -28,7 +28,7 @@ def config():
             output["buttons"].pop("list_btn", None)
         return output
     s3.postp = postp
-    
+
     # Can't do anything else than update here
     r = s3_request(args=[str(record_id), "update"], extension="html")
     return r()
@@ -40,11 +40,13 @@ def repository():
     tabs = [(T("Configuration"), None),
             (T("Resources"), "task"),
             (T("Schedule"), "job"),
-            (T("Log"), "log")
+            (T("Log"), "log"),
             ]
 
     s3db.set_method("sync", "repository",
-                    method="register", action=current.sync)
+                    method="register",
+                    action=current.sync,
+                    )
 
     crud_form = s3base.S3SQLCustomForm("resource_name",
                                        "last_pull",
@@ -59,7 +61,7 @@ def repository():
                                              label = T("Filters"),
                                              fields = ["tablename",
                                                        "filter_string",
-                                                      ]
+                                                       ],
                                        ),
                                       )
     s3db.configure("sync_task", crud_form=crud_form)
@@ -74,9 +76,11 @@ def repository():
             field.writable = True
             field.comment = DIV(_class="tooltip",
                                 _title="%s|%s" % (
-                                       T("Repository UUID"),
-                                       T("Identifier which the remote site uses to authenticate at this site when sending synchronization requests.")))
-            
+                                        T("Repository UUID"),
+                                        T("Identifier which the remote site uses to authenticate at this site when sending synchronization requests."),
+                                        ),
+                                )
+
             if r.component and r.id:
                 if r.component.alias == "job":
                     s3task.configure_tasktable_crud(
@@ -84,26 +88,35 @@ def repository():
                         args = [r.id],
                         vars = dict(user_id = auth.user.id if auth.user else 0),
                         period = 600, # seconds, so 10 mins
-                        )
+                    )
                 elif r.component.alias == "log" and r.component_id:
                     table = r.component.table
                     table.message.represent = lambda msg: \
                                                 DIV(s3base.s3_strip_markup(msg),
-                                                    _class="message-body")
-                s3.cancel = URL(c="sync", f="repository",
-                                args=[str(r.id), r.component.alias])
+                                                    _class="message-body",
+                                                    )
+                s3.cancel = URL(c="sync",
+                                f="repository",
+                                args=[str(r.id), r.component.alias],
+                                )
         return True
     s3.prep = prep
 
     def postp(r, output):
         if r.interactive and r.id:
             if r.component and r.component.alias == "job":
-                s3.actions = [
-                    dict(label=str(T("Reset")),
-                         _class="action-btn",
-                         url=URL(c="sync", f="repository",
-                                 args=[str(r.id), "job", "[id]", "reset"]))
-                    ]
+                s3.actions = [dict(label=str(T("Reset")),
+                                   _class="action-btn",
+                                   url=URL(c="sync",
+                                           f="repository",
+                                           args=[str(r.id),
+                                                 "job",
+                                                 "[id]",
+                                                 "reset",
+                                                 ],
+                                           ),
+                                   )
+                              ]
         s3_action_buttons(r)
         return output
     s3.postp = postp
@@ -115,29 +128,37 @@ def repository():
 def sync():
     """ Synchronization """
 
-    if "resource" in get_vars:
-        tablename = get_vars["resource"]
-        if "_" in tablename:
+    tablename = get_vars.get("resource")
+    if not tablename or tablename == "mixed":
+        # Sync adapter to determine/negotiate the resource(s)
+        mixed = True
+        tablename = "sync_repository"
+    else:
+        # Resource determined by request
+        mixed = False
 
-            # URL variables from peer:
-            # repository ID, msince and sync filters
-            get_vars_new = Storage(include_deleted=True)
-            
-            for k, v in get_vars.items():
-                if k in ("repository", "msince") or \
-                   k[0] == "[" and "]" in k:
-                    get_vars_new[k] = v
+    if tablename and "_" in tablename:
 
-            # Request
-            prefix, name = tablename.split("_", 1)
-            r = s3_request(prefix=prefix,
-                           name=name,
-                           args=["sync"],
-                           get_vars=get_vars_new)
+        get_vars_new = Storage(include_deleted=True)
 
-            # Response
-            output = r()
-            return output
+        # Copy URL variables from peer:
+        # repository ID, msince and sync filters
+        for k, v in get_vars.items():
+            if k in ("repository", "msince") or \
+                k[0] == "[" and "]" in k:
+                get_vars_new[k] = v
+
+        # Request
+        prefix, name = tablename.split("_", 1)
+        r = s3_request(prefix = prefix,
+                       name = name,
+                       args = ["sync"],
+                       get_vars = get_vars_new,
+                       )
+
+        # Response
+        output = r(mixed=mixed)
+        return output
 
     raise HTTP(400, body=current.ERROR.BAD_REQUEST)
 
@@ -155,15 +176,18 @@ def log():
 
     def prep(r):
         if r.record:
-            r.table.message.represent = lambda msg: DIV(s3base.s3_strip_markup(msg),
-                                                         _class="message-body")
+            r.table.message.represent = lambda msg: \
+                                            DIV(s3base.s3_strip_markup(msg),
+                                                _class="message-body",
+                                                )
         return True
     s3.prep = prep
 
     output = s3_rest_controller("sync", "log",
                                 subtitle=None,
                                 rheader=s3base.S3SyncLog.rheader,
-                                list_btn=list_btn)
+                                list_btn=list_btn,
+                                )
     return output
 
 # END =========================================================================

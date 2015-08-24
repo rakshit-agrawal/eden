@@ -1,0 +1,8 @@
+/* Stuff which is SAMBRO-specific */
+
+.dl-header {
+    display: none;
+}
+legend button {
+    margin: 0;
+}

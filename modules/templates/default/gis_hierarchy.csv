@@ -17,6 +17,7 @@ SITE_DEFAULT,,"State / Province","County / District","City / Town / Village","Vi
 ,HR,County,"Town / Municipality",,,,
 ,ID,Province,"Regency / City",District,Administrative Village,,
 ,IN,State,District,Subdistrict,,,
+,IQ,Province,District,,,,
 ,KE,Province,District,Division,Location,
 ,KG,"Oblast / State City","District (Rayon) / Oblast City","Town / Village Group",Village,,
 ,KH,Province,District,Commune,Village,
@@ -38,7 +39,7 @@ SITE_DEFAULT,,"State / Province","County / District","City / Town / Village","Vi
 ,TJ,Province,District,Jamoat,Village,,
 ,TL,District,SubDistrict,Suco,Aldeia,,
 ,TM,Province,District,,,,
-,TR,Province,District,,,,
+,TR,City,Town,District,,,
 ,PR,Municipality,Barrio,,,,
 ,US,State,County,City,Neighborhood,,False
 ,UZ,Province,District,,,,
