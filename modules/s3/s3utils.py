@@ -60,6 +60,7 @@ from gluon.languages import lazyT
 from gluon.tools import addrow
 
 from s3dal import Expression, Row
+from s3datetime import ISOFORMAT, s3_decode_iso_datetime
 
 DEBUG = False
 if DEBUG:
@@ -907,10 +908,40 @@ def s3_auth_user_represent_name(id, row=None):
 def s3_yes_no_represent(value):
     " Represent a Boolean field as Yes/No instead of True/False "
 
-    if value:
+    if value is True:
         return current.T("Yes")
-    else:
+    elif value is False:
         return current.T("No")
+    else:
+        return current.messages["NONE"]
+
+# =============================================================================
+def s3_redirect_default(location="", how=303, client_side=False, headers=None):
+    """
+        Redirect preserving response messages, useful when redirecting from
+        index() controllers.
+
+        @param location: the url where to redirect
+        @param how: what HTTP status code to use when redirecting
+        @param client_side: if set to True, it triggers a reload of
+                            the entire page when the fragment has been
+                            loaded as a component
+        @param headers: response headers
+    """
+
+    response = current.response
+    session = current.session
+
+    session.error = response.error
+    session.warning = response.warning
+    session.confirmation = response.confirmation
+    session.flash = response.flash
+
+    redirect(location,
+             how=how,
+             client_side=client_side,
+             headers=headers,
+             )
 
 # =============================================================================
 def s3_include_debug_css():
@@ -1770,13 +1801,23 @@ def URL2(a=None, c=None, r=None):
 
 # =============================================================================
 class S3CustomController(object):
+    """
+        Base class for custom controllers (template/controllers.py),
+        implements common helper functions
+    """
 
     @classmethod
-    def _view(cls, theme, name):
+    def _view(cls, template, filename):
+        """
+            Use a custom view template
+
+            @param template: the name of template (determines the path)
+            @param filename: the name of the view template file
+        """
 
         view = os.path.join(current.request.folder,
                             current.deployment_settings.get_template_location(),
-                            "templates", theme, "views", name)
+                            "templates", template, "views", filename)
         try:
             # Pass view as file not str to work in compiled mode
             current.response.view = open(view, "rb")
@@ -1784,104 +1825,6 @@ class S3CustomController(object):
             from gluon.http import HTTP
             raise HTTP(404, "Unable to open Custom View: %s" % view)
         return
-
-# =============================================================================
-class S3DateTime(object):
-    """
-        Toolkit for date+time parsing/representation
-    """
-
-    # -------------------------------------------------------------------------
-    @classmethod
-    def date_represent(cls, date, format=None, utc=False):
-        """
-            Represent the date according to deployment settings &/or T()
-
-            @param date: the date
-            @param format: the format if wishing to override deployment_settings
-            @param utc: the date is given in UTC
-        """
-
-        if not format:
-            format = current.deployment_settings.get_L10n_date_format()
-
-        if date and isinstance(date, datetime.datetime) and utc:
-            offset = cls.get_offset_value(current.session.s3.utc_offset)
-            if offset:
-                date = date + datetime.timedelta(seconds=offset)
-
-        if date:
-            try:
-                return date.strftime(str(format))
-            except:
-                # e.g. dates < 1900
-                date = date.isoformat()
-                current.log.warning("Date cannot be formatted - using isoformat", date)
-                return date
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @classmethod
-    def time_represent(cls, time, utc=False):
-        """
-            Represent the date according to deployment settings &/or T()
-
-            @param time: the time
-            @param utc: the time is given in UTC
-        """
-
-        session = current.session
-        settings = current.deployment_settings
-        format = settings.get_L10n_time_format()
-
-        if time and utc:
-            offset = cls.get_offset_value(session.s3.utc_offset)
-            if offset:
-                time = time + datetime.timedelta(seconds=offset)
-
-        if time:
-            return time.strftime(str(format))
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @classmethod
-    def datetime_represent(cls, dt, utc=False):
-        """
-            Represent the datetime according to deployment settings &/or T()
-
-            @param dt: the datetime
-            @param utc: the datetime is given in UTC
-        """
-
-        if dt and utc:
-            offset = cls.get_offset_value(current.session.s3.utc_offset)
-            if offset:
-                dt = dt + datetime.timedelta(seconds=offset)
-
-        if dt:
-            return current.xml.encode_local_datetime(dt)
-        else:
-            return current.messages["NONE"]
-
-    # -----------------------------------------------------------------------------
-    @staticmethod
-    def get_offset_value(offset_str):
-        """
-            Convert an UTC offset string into a UTC offset value in seconds
-
-            @param offset_str: the UTC offset as string
-        """
-        if offset_str and len(offset_str) >= 5 and \
-            (offset_str[-5] == "+" or offset_str[-5] == "-") and \
-            offset_str[-4:].isdigit():
-            offset_hrs = int(offset_str[-5] + offset_str[-4:-2])
-            offset_min = int(offset_str[-5] + offset_str[-2:])
-            offset = 3600 * offset_hrs + 60 * offset_min
-            return offset
-        else:
-            return None
 
 # =============================================================================
 class S3TypeConverter(object):
@@ -2020,24 +1963,33 @@ class S3TypeConverter(object):
         if isinstance(b, datetime.datetime):
             return b
         elif isinstance(b, basestring):
+            # NB: converting from string (e.g. URL query) assumes the string
+            #     is specified for the local time zone, unless a timezone is
+            #     explicitly specified in the string (e.g. trailing Z in ISO)
+            dt = None
             try:
-                # ISO Format is standard (e.g. in URLs)
-                tfmt = current.xml.ISOFORMAT
-                (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(b, tfmt)
+                # Try ISO Format (e.g. filter widgets)
+                (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(b, ISOFORMAT)
             except ValueError:
+                # Fall back to default format (deployment setting)
+                dt = b
+            else:
+                dt = datetime.datetime(y, m, d, hh, mm, ss)
+            # Validate and convert to UTC (assuming local timezone)
+            from s3validators import IS_UTC_DATETIME
+            dt, error = IS_UTC_DATETIME()(dt)
+            if error:
+                # dateutil as last resort
+                # NB: this can process ISOFORMAT with time zone specifier,
+                #     returning a timezone-aware datetime, which is then
+                #     properly converted by IS_UTC_DATETIME
                 try:
-                    # Try localized datetime format
-                    tfmt = str(current.deployment_settings.get_L10n_datetime_format())
-                    (y, m, d, hh, mm, ss, t0, t1, t2) = time.strptime(b, tfmt)
-                except ValueError:
-                    # dateutil as last resort
-                    try:
-                        dt = current.xml.decode_iso_datetime(b)
-                    except:
-                        raise ValueError
-                    else:
-                        return dt
-            return datetime.datetime(y, m, d, hh, mm, ss)
+                    dt = s3_decode_iso_datetime(b)
+                except:
+                    raise ValueError
+                else:
+                    dt, error = IS_UTC_DATETIME()(dt)
+            return dt
         else:
             raise TypeError
 
@@ -2049,11 +2001,14 @@ class S3TypeConverter(object):
         if isinstance(b, datetime.date):
             return b
         elif isinstance(b, basestring):
-            format = current.deployment_settings.get_L10n_date_format()
-            validator = IS_DATE(format=format)
-            value, error = validator(b)
+            # NB: converting from string (e.g. URL query) assumes
+            #     the string is specified for the local time zone,
+            #     specify an ISOFORMAT date/time with explicit time zone
+            #     (e.g. trailing Z) to override this assumption
+            from s3validators import IS_UTC_DATE
+            value, error = IS_UTC_DATE()(b)
             if error:
-                # May be specified as datetime-string?
+                # Maybe specified as datetime-string?
                 value = cls._datetime(b).date()
             return value
         else:

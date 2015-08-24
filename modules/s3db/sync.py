@@ -134,6 +134,7 @@ class SyncDataModel(S3Model):
             "ccrm": "CiviCRM",
             "wrike": "Wrike",
             "mcb": "Mariner CommandBridge",
+            "adashi": "ADASHI (passive)"
         }
         password_widget = S3PasswordWidget()
         tablename = "sync_repository"
@@ -222,6 +223,15 @@ class SyncDataModel(S3Model):
                                                 T("Accept Push"),
                                                 T("Accept unsolicited data transmissions from the repository."))),
                            ),
+                     Field("synchronise_uuids", "boolean",
+                           represent = s3_yes_no_represent,
+                           default = False,
+                           label = T("Synchronize UUIDs"),
+                           comment = DIV(_class="tooltip",
+                                         _title="%s|%s" % (
+                                                T("Synchronize UUIDs"),
+                                                T("Allow records to be synchronized even if the remote record has a different unique identifier (UUID), and update local identifiers. Useful in active repositories when there are known duplicates in the remote database. Must be activated before the first synchronization run to take effect."))),
+                           ),
                      Field.Method("last_pull_time",
                                   self.sync_repository_last_pull_time),
                      Field.Method("last_push_time",
@@ -276,7 +286,7 @@ class SyncDataModel(S3Model):
                        sync_task="repository_id",
                        sync_log="repository_id",
                        #sync_conflict="repository_id",
-                       
+
                        **{# Scheduler Jobs
                           S3Task.TASK_TABLENAME: {"name": "job",
                                                   "joinby": "repository_id",
@@ -435,7 +445,7 @@ class SyncDataModel(S3Model):
         add_components(tablename,
                        sync_resource_filter="task_id",
                       )
-                      
+
         # -------------------------------------------------------------------------
         # Filters
         # -------------------------------------------------------------------------
@@ -459,7 +469,7 @@ class SyncDataModel(S3Model):
                                  "filter_string"],
                   onaccept = onaccept,
                   ondelete = onaccept)
-                             
+
         # -------------------------------------------------------------------------
         # Job
         # -------------------------------------------------------------------------
@@ -714,7 +724,7 @@ class SyncDataModel(S3Model):
 
         db = current.db
         s3db = current.s3db
-        
+
         ttable = s3db.sync_task
         ftable = s3db.sync_resource_filter
 
@@ -745,7 +755,7 @@ class SyncDataModel(S3Model):
                 task_id = row.task_id
             if task_id:
                 db(ttable.id == task_id).update(last_push=None)
-                
+
         return
 
 # =============================================================================

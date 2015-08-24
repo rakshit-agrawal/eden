@@ -751,17 +751,17 @@ class ResourceFilterQueryTests(unittest.TestCase):
 
     # -------------------------------------------------------------------------
     def testDateTimeComparison(self):
-        """ 
+        """
             Test virtual field string value comparison against
             date/time value
         """
 
         assertTrue = self.assertTrue
         assertFalse = self.assertFalse
-        
+
         resource = current.s3db.resource("org_organisation")
         row = Storage()
-        
+
         # Test matching date
         query = FS("test") == datetime.datetime(2014,10,5).date()
 
@@ -771,7 +771,7 @@ class ResourceFilterQueryTests(unittest.TestCase):
         assertFalse(query(resource, row))
         row.test = ""
         assertFalse(query(resource, row))
-        
+
         # Test matching datetime
         query = FS("test") == datetime.datetime(2014,10,5,10,0,0)
 
@@ -786,7 +786,7 @@ class ResourceFilterQueryTests(unittest.TestCase):
 
         # Test matching time
         query = FS("test") == datetime.time(10,0,0)
-        
+
         row.test = "10:00:00"
         assertTrue(query(resource, row))
         row.test = "11:00:00"
@@ -795,7 +795,7 @@ class ResourceFilterQueryTests(unittest.TestCase):
         assertFalse(query(resource, row))
         row.test = ""
         assertFalse(query(resource, row))
-        
+
     # -------------------------------------------------------------------------
     def tearDown(self):
 
@@ -2432,13 +2432,13 @@ class URLQueryParserTests(unittest.TestCase):
              ),
             ("pr_person",
              'last_name like "User*" or lower(contact.value) like "*example.com"',
-             {None: '((pr_person.last_name like "user%") or (pr_contact.value.lower() like "%example.com"))',
+             {None: '((pr_person.last_name.lower() like "user%") or (pr_contact.value.lower() like "%example.com"))',
               },
              ),
             ("pr_person",
              'last_name like "User*" and not(contact.value like "*example.com" or first_name like "Norm*")',
-             {None: '((pr_person.last_name like "user%") and (not (pr_person.first_name like "norm%")))',
-              "contact": '(not (pr_contact.value like "%example.com"))',
+             {None: '((pr_person.last_name.lower() like "user%") and (not (pr_person.first_name.lower() like "norm%")))',
+              "contact": '(not (pr_contact.value.lower() like "%example.com"))',
               },
              ),
             ("pr_person",
@@ -2448,6 +2448,10 @@ class URLQueryParserTests(unittest.TestCase):
             ("org_organisation",
              None,
              {},
+             ),
+            ("org_facility",
+             'organisation_id$name like "*YMCA*" or organisation_id$name like "*YWCA*"',
+             {None: '((org_organisation.name.lower() like "%ymca%") or (org_organisation.name.lower() like "%ywca%"))'},
              ),
             ("org_office",
              'not a valid expression',
@@ -2480,6 +2484,136 @@ class URLQueryParserTests(unittest.TestCase):
                             )
 
 # =============================================================================
+class AIRegexTests(unittest.TestCase):
+    """ Tests for accent-insensitive LIKE """
+
+    @classmethod
+    def setUpClass(cls):
+
+        db = current.db
+
+        # Define test table
+        db.define_table("airegex_test", Field("name"), *s3_meta_fields())
+
+        # Import sample records
+        samples = (
+            {"uuid": "TEST0", "name": "Reñan"},
+            {"uuid": "TEST1", "name": "Solen"},
+            {"uuid": "TEST2", "name": "Manth"},
+            {"uuid": "TEST3", "name": "Lặyeh"},
+            {"uuid": "TEST4", "name": "Gonek"},
+            {"uuid": "TEST5", "name": "Gỏnhe"},
+            {"uuid": "TEST6", "name": "Sælod"},
+            {"uuid": "TEST7", "name": "Fälød"},
+            {"uuid": "TEST8", "name": "Kîlur"},
+            {"uuid": "TEST9", "name": "Nulừk"},
+            {"uuid": "TEST10", "name": "Đắk Lặk"},
+            {"uuid": "TEST11", "name": "İhkvo"}
+            # Commented until PyDAL SQLiteAdapter is fixed:
+            #{"uuid": "TEST11", "name": None}
+        )
+        table = db.airegex_test
+        for data in samples:
+            table.insert(uuid = data["uuid"], name = data["name"])
+
+        current.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+
+        db = current.db
+        db.airegex_test.drop()
+        db.commit()
+
+    # -------------------------------------------------------------------------
+    def setUp(self):
+
+        current.auth.override = True
+        self.airegex(True)
+
+    def tearDown(self):
+
+        current.db.rollback()
+        current.auth.override = False
+        self.airegex(False)
+
+    # -------------------------------------------------------------------------
+    def testSamples(self):
+        """ Test sample LIKE-queries """
+
+        s3db = current.s3db
+
+        assertTrue = self.assertTrue
+        assertEqual = self.assertEqual
+
+        samples = (
+            ("%en%", ("TEST0", "TEST1")),
+            ("%oc%", ()),
+            ("%ặy%", ("TEST3",)),
+            ("%luk%", ("TEST9",)),
+            ("%ælod%", ("TEST6",)),
+            ("Gone%", ("TEST4",)),
+            ("Gon%", ("TEST4", "TEST5")),
+            ("Mãn%", ("TEST2",)),
+            ("%îlu%", ("TEST8",)),
+            ("%ïlu%", ("TEST8",)),
+            (u"%Đắk%", ("TEST10",)),
+            (u"ihḱv%", ("TEST11",)),
+            (u"%İhk%", ("TEST11",)),
+            ("", ()),
+            (1, ()),
+        )
+
+        for index, sample in enumerate(samples):
+
+            search_string, expected = sample
+
+            query = FS("name").like(search_string)
+            resource = s3db.resource("airegex_test", filter=query)
+
+            rows = resource.select(["uuid", "name"], as_rows=True)
+            uuids = [row.uuid for row in rows]
+            msg = "Sample %s failed: " \
+                  "expected %s matches %s, but found %s %s" % \
+                  (index, len(expected), expected, len(rows), uuids)
+            assertEqual(len(rows), len(expected), msg = msg)
+
+            if len(expected):
+                for row in rows:
+                    uuid = row.uuid
+                    msg = "Sample %s failed: %s not in %s" % \
+                          (index, uuid, expected)
+                    assertTrue(row.uuid in expected, msg = msg)
+
+    # -------------------------------------------------------------------------
+    def testComplex(self):
+        """ Test airegex-queries as part of a complex query """
+
+        self.airegex(True)
+
+        assertEqual = self.assertEqual
+        assertTrue = self.assertTrue
+
+        query = (FS("uuid").belongs(("TEST0", "TEST1", "TEST2"))) & \
+                ((FS("name").like("%eñ")) | (FS("name").like("Man%")))
+
+        expected = ("TEST1", "TEST2",)
+
+        resource = current.s3db.resource("airegex_test", filter=query)
+
+        rows = resource.select(["uuid", "name"], as_rows=True)
+
+        assertEqual(len(rows), len(expected))
+        for row in rows:
+            assertTrue(row.uuid in expected)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def airegex(switch):
+
+        current.deployment_settings.database.airegex = switch
+
+# =============================================================================
 def run_suite(*test_classes):
     """ Run the test suite """
 
@@ -2510,6 +2644,8 @@ if __name__ == "__main__":
 
         ResourceFieldTests,
         ResourceDataAccessTests,
+
+        AIRegexTests,
     )
 
 # END ========================================================================

@@ -224,7 +224,7 @@ class TranslateGetFiles:
             currentDir = path.abspath(currentDir)
             base_dir = path.basename(currentDir)
 
-            if base_dir in (".git", 
+            if base_dir in (".git",
                             "docs",
                             "languages",
                             "private",
@@ -855,7 +855,9 @@ class TranslateReadFiles:
                     if hasattr(s3db, fieldname) == False:
                         continue
                     reusable_field = s3db.get(fieldname)
-                    if reusable_field:
+                    # Callable check excludes lambdas which are in defaults()
+                    # i.e. reusable fields in disabled modules
+                    if reusable_field and not callable(reusable_field):
                         represent = reusable_field.attr.represent
                         if hasattr(represent, "translate"):
                             translate = represent.translate
@@ -1286,6 +1288,7 @@ class Pootle:
                 Upload a file to Pootle
             """
 
+            # @ToDo try/except error
             import mechanize
             import re
 
