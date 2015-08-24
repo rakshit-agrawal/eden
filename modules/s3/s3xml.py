@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+## -*- coding: utf-8 -*-
 
 """ S3XML Toolkit
 
@@ -56,6 +56,7 @@ from gluon import *
 from gluon.storage import Storage
 
 from s3codec import S3Codec
+from s3datetime import s3_decode_iso_datetime, s3_encode_iso_datetime, s3_utc
 from s3fields import S3RepresentLazy
 from s3utils import s3_get_foreign_key, s3_unicode, s3_strip_markup, s3_validate, s3_represent_value
 
@@ -1014,7 +1015,12 @@ class S3XML(S3Codec):
 
             if tablename in attributes:
                 # Add Attributes
-                attrs = attributes[tablename][record_id]
+                try:
+                    attrs = attributes[tablename][record_id]
+                except KeyError:
+                    from s3utils import s3_debug
+                    s3_debug("S3XML", "record not found in lookup")
+                    attrs = {}
                 if attrs:
                     # Encode in a way which we can decode in static/formats/geojson/export.xsl
                     # - double up all tokens to reduce chances of them being within represents
@@ -1179,8 +1185,6 @@ class S3XML(S3Codec):
         # Fields
         FIELDS_TO_ATTRIBUTES = self.FIELDS_TO_ATTRIBUTES
 
-        encode_iso_datetime = self.encode_iso_datetime
-
         _repr = self.represent
         to_json = json.dumps
 
@@ -1207,7 +1211,7 @@ class S3XML(S3Codec):
             value = None
 
             if fieldtype == "datetime":
-                value = encode_iso_datetime(v).decode("utf-8")
+                value = s3_encode_iso_datetime(v).decode("utf-8")
             elif fieldtype in ("date", "time") or \
                  fieldtype[:7] == "decimal":
                 value = str(formatter(v)).decode("utf-8")
@@ -1355,8 +1359,8 @@ class S3XML(S3Codec):
         value = None
 
         try:
-            dt = S3Codec.decode_iso_datetime(str(dtstr))
-            value = S3Codec.as_utc(dt)
+            dt = s3_decode_iso_datetime(str(dtstr))
+            value = s3_utc(dt)
         except:
             error = sys.exc_info()[1]
         if error is None:
@@ -1494,8 +1498,8 @@ class S3XML(S3Codec):
             if field_type in ("id", "blob"):
                 continue
             elif field_type == "upload":
-                download_url = child.get(ATTRIBUTE["url"], None)
-                filename = child.get(ATTRIBUTE["filename"], None)
+                download_url = child.get(ATTRIBUTE["url"])
+                filename = child.get(ATTRIBUTE["filename"])
                 upload = None
                 if filename and filename in files:
                     # We already have the file cached
@@ -1515,17 +1519,23 @@ class S3XML(S3Codec):
                         # continue
                 elif download_url:
                     # Download file from Internet
-                    if not filename:
+                    if not isinstance(download_url, str):
                         try:
-                            filename = download_url.split("?")[0]
-                        except:
-                            # Fake filename as fallback
-                            filename = "upload.bin"
+                            download_url = download_url.encode("utf-8")
+                        except UnicodeEncodeError:
+                            continue
+                    if not filename:
+                        filename = download_url.split("?")[0] or "upload.bin"
                     try:
                         upload = urllib2.urlopen(download_url)
                     except IOError:
                         continue
                 if upload:
+                    if not isinstance(filename, str):
+                        try:
+                            filename = filename.encode("utf-8")
+                        except UnicodeEncodeError:
+                            continue
                     field = table[f]
                     value = field.store(upload, filename)
                 elif download_url != "local":
@@ -1594,7 +1604,7 @@ class S3XML(S3Codec):
                                                  "file": stream})
                                 (dummy, error) = s3_validate(table, f, dummy, original)
                         elif field_type == "password":
-                            v = value
+                            v = str(value) # CRYPT barfs on integers
                             (value, error) = s3_validate(table, f, v)
                         else:
                             (value, error) = s3_validate(table, f, v, original)
@@ -2077,19 +2087,19 @@ class S3XML(S3Codec):
                 attributes = child.attrib
                 if native:
                     if tag == TAG.resource:
-                        resource = attributes[ATTRIBUTE.name]
+                        resource = attributes.get(ATTRIBUTE.name)
                         tag = "%s_%s" % (PREFIX.resource, resource)
                         collapse = False
                     elif tag == TAG.options:
-                        r = attributes[ATTRIBUTE.resource]
+                        r = attributes.get(ATTRIBUTE.resource)
                         tag = "%s_%s" % (PREFIX.options, r)
                         single = is_single(TAG.options, ATTRIBUTE.resource, r)
                     elif tag == TAG.reference:
-                        f = attributes[ATTRIBUTE.field]
+                        f = attributes.get(ATTRIBUTE.field)
                         tag = "%s_%s" % (PREFIX.reference, f)
                         single = is_single(TAG.reference, ATTRIBUTE.field, f)
                     elif tag == TAG.data:
-                        tag = attributes[ATTRIBUTE.field]
+                        tag = attributes.get(ATTRIBUTE.field)
                         single = is_single(TAG.data, ATTRIBUTE.field, tag)
                 else:
                     for s in iterchildren(tag=tag):
@@ -2375,7 +2385,6 @@ class S3XML(S3Codec):
             decode_date = lambda v: datetime.datetime(
                                     *xlrd.xldate_as_tuple(v, wb.datemode))
 
-            encode_iso_datetime = cls.encode_iso_datetime
             def decode(t, v):
                 """
                     Helper method to decode the cell value by type
@@ -2393,7 +2402,7 @@ class S3XML(S3Codec):
                     elif t == xlrd.XL_CELL_NUMBER:
                         text = str(long(v)) if long(v) == v else str(v)
                     elif t == xlrd.XL_CELL_DATE:
-                        text = encode_iso_datetime(decode_date(v))
+                        text = s3_encode_iso_datetime(decode_date(v))
                     elif t == xlrd.XL_CELL_BOOLEAN:
                         text = str(value).lower()
                 return text
@@ -2427,6 +2436,10 @@ class S3XML(S3Codec):
                 types = s.row_types(ridx, *cols)
                 values = s.row_values(ridx, *cols)
 
+                # Skip empty rows
+                if not any(v != "" for v in values):
+                    continue
+
                 if header_row and record_idx == 0:
                     # Read column headers
                     if not fields:
@@ -2447,7 +2460,10 @@ class S3XML(S3Codec):
                                 v = values[cidx]
                             except IndexError:
                                 continue
-                            if v:
+                            if t not in (xlrd.XL_CELL_TEXT, xlrd.XL_CELL_EMPTY):
+                                items = None
+                                break
+                            elif v:
                                 items[name] = v
                         if items and all(v[0] == '#' for v in items.values()):
                             hashtags.update(items)
@@ -2541,7 +2557,7 @@ class S3XML(S3Codec):
             # Make this a list of all encodings you need to support (as long as
             # they are supported by Python codecs), always starting with the most
             # likely.
-            encodings = ["utf-8-sig", "iso-8859-1"]
+            encodings = ("utf-8-sig", "iso-8859-1")
             e = encodings[0]
             for line in source:
                 if e:
@@ -2571,11 +2587,14 @@ class S3XML(S3Codec):
                                     quotechar=quotechar)
             ROW = TAG.row
             for i, r in enumerate(reader):
+                # Skip empty rows
+                if not any(r.values()):
+                    continue
                 if i == 0:
                     # Auto-detect hashtags
                     items = dict((k, s3_unicode(v.strip()))
                                  for k, v in r.items() if k and v and v.strip())
-                    if all(v[0] == '#' for v in items.values()):
+                    if all(v[0] == "#" for v in items.values()):
                         hashtags.update(items)
                         continue
                 row = SubElement(root, ROW)

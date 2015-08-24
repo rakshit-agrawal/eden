@@ -54,6 +54,7 @@ from gluon.languages import lazyT
 from gluon.storage import Storage
 from gluon.tools import callback
 
+from s3datetime import S3DateTime
 from s3export import S3Exporter
 from s3forms import S3SQLDefaultForm
 from s3rest import S3Method
@@ -541,8 +542,7 @@ class S3CRUD(S3Method):
                                     name="label_create",
                                     icon="add",
                                     _id="add-btn")
-                if buttons:
-                    output["buttons"] = {"add_btn": add_btn}
+                output["buttons"] = {"add_btn": add_btn}
 
         view = self._view(r, "listadd.html")
         output = XML(response.render(view, output))
@@ -594,7 +594,7 @@ class S3CRUD(S3Method):
 
             # If this is a single-component and no record exists,
             # try to create one if the user is permitted
-            if not record_id and r.component and not r.multiple:
+            if not record_id and r.component and not r.component.multiple:
                 authorised = self._permitted(method="create")
                 if authorised:
                     # This should become Native
@@ -625,12 +625,17 @@ class S3CRUD(S3Method):
 
             # Item
             if record_id:
-                item = self.sqlform(request=request,
-                                    resource=resource,
-                                    record_id=record_id,
-                                    readonly=True,
-                                    subheadings=subheadings,
-                                    format=representation)
+                try:
+                    item = self.sqlform(request=request,
+                                        resource=resource,
+                                        record_id=record_id,
+                                        readonly=True,
+                                        subheadings=subheadings,
+                                        format=representation)
+                except HTTP, e:
+                    message = current.ERROR.BAD_RECORD \
+                              if e.status == 404 else e.message
+                    r.error(e.status, message)
             else:
                 item = DIV(crud_string(tablename, "msg_list_empty"),
                            _class="empty")
@@ -887,15 +892,20 @@ class S3CRUD(S3Method):
                 self._default_cancel_button(r)
 
             # Get the form
-            form = self.sqlform(request=self.request,
-                                resource=resource,
-                                record_id=record_id,
-                                onvalidation=onvalidation,
-                                onaccept=onaccept,
-                                message=message,
-                                link=link,
-                                subheadings=subheadings,
-                                format=representation)
+            try:
+                form = self.sqlform(request=self.request,
+                                    resource=resource,
+                                    record_id=record_id,
+                                    onvalidation=onvalidation,
+                                    onaccept=onaccept,
+                                    message=message,
+                                    link=link,
+                                    subheadings=subheadings,
+                                    format=representation)
+            except HTTP, e:
+                message = current.ERROR.BAD_RECORD \
+                          if e.status == 404 else e.message
+                r.error(e.status, message)
 
             # Navigate-away confirmation
             if self.settings.navigate_away_confirm:
@@ -1383,10 +1393,6 @@ class S3CRUD(S3Method):
         # Initialize output
         output = {}
 
-        # Filter
-        if s3.filter is not None:
-            resource.add_filter(s3.filter)
-
         # Linkto
         if not linkto:
             linkto = self._linkto(r)
@@ -1601,10 +1607,6 @@ class S3CRUD(S3Method):
 
         # Initialize output
         output = {}
-
-        # Filter
-        if s3.filter is not None:
-            resource.add_filter(s3.filter)
 
         # Prepare data list
         representation = r.representation
@@ -2272,15 +2274,19 @@ class S3CRUD(S3Method):
     # -------------------------------------------------------------------------
     def last_update(self):
         """
-            Get the last update meta-data
+            Get the last update meta-data of the current record
+
+            @return: a dict {modified_by: <user>, modified_on: <datestr>},
+                     depending on which of these attributes are available
+                     in the current record
         """
 
-        output = dict()
+        output = {}
         record_id = self.record_id
         if record_id:
-            T = current.T
-            table = self.table
+            record = None
             fields = []
+            table = self.table
             if "modified_on" in table.fields:
                 fields.append(table.modified_on)
             if "modified_by" in table.fields:
@@ -2290,20 +2296,23 @@ class S3CRUD(S3Method):
                 query = (table._id == record_id)
                 record = current.db(query).select(limitby=(0, 1),
                                                   *fields).first()
-
-                if record:
-                    if "modified_by" in record:
-                        if not record.modified_by:
-                            modified_by = T("anonymous user")
-                        else:
-                            modified_by = \
-                                table.modified_by.represent(record.modified_by)
-                        output["modified_by"] = T("by %(person)s") % \
-                                                  dict(person = modified_by)
-                    if "modified_on" in record:
-                        output["modified_on"] = T("on %(date)s") % \
-                                                dict(date = record.modified_on)
-
+            if record:
+                T = current.T
+                if "modified_by" in record:
+                    if not record.modified_by:
+                        modified_by = T("anonymous user")
+                    else:
+                        modified_by = \
+                            table.modified_by.represent(record.modified_by)
+                    output["modified_by"] = T("by %(person)s") % \
+                                             {"person": modified_by}
+                if "modified_on" in record:
+                    modified_on = \
+                        S3DateTime.datetime_represent(record.modified_on,
+                                                      utc=True,
+                                                      )
+                    output["modified_on"] = T("on %(date)s") % \
+                                             {"date": modified_on}
         return output
 
     # -------------------------------------------------------------------------
@@ -2353,7 +2362,7 @@ class S3CRUD(S3Method):
         # List button
         if "list" in buttons:
             LIST_BTN = "list_btn"
-            if not r.component or r.multiple:
+            if not r.component or r.component.multiple:
                 if LIST_BTN in custom_crud_buttons:
                     btn = crud_button(custom=custom_crud_buttons[LIST_BTN])
                 else:
@@ -2371,7 +2380,7 @@ class S3CRUD(S3Method):
         # Summary button
         if "summary" in buttons:
             SUMMARY_BTN = "summary_btn"
-            if not r.component or r.multiple:
+            if not r.component or r.component.multiple:
                 if SUMMARY_BTN in custom_crud_buttons:
                     btn = crud_button(custom=custom_crud_buttons[SUMMARY_BTN])
                 else:

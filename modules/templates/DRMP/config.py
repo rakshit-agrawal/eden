@@ -119,7 +119,7 @@ def config(settings):
     # Default Language
     settings.L10n.default_language = "tet"
     # Default timezone for users
-    settings.L10n.utc_offset = "UTC +0900"
+    settings.L10n.utc_offset = "+0900"
     # Unsortable 'pretty' date format
     settings.L10n.date_format = "%d %b %Y"
     # Number formats (defaults to ISO 31-0)
@@ -2501,14 +2501,15 @@ def config(settings):
                                                         #P(record.comments),
                                                         _class="profile-header",
                                                         ),
-                                   profile_widgets = [alerts_widget,
+                                   profile_widgets = (alerts_widget,
                                                       map_widget,
                                                       incidents_widget,
                                                       assessments_widget,
                                                       activities_widget,
                                                       reports_widget,
                                                       #comments_widget,
-                                                      ])
+                                                      ),
+                                   )
 
                 # Include a Location inline
                 location_field = s3db.event_event_location.location_id
@@ -2615,7 +2616,7 @@ def config(settings):
                     s3.dl_rowsize = 2
 
                     # Just show L1s (Districts)
-                    s3.filter = (table.level == "L1")
+                    r.resource.add_filter(table.level == "L1")
                     # Default 5 triggers an AJAX call, we should load all by default
                     s3.dl_pagelength = 13
 
@@ -2753,14 +2754,14 @@ def config(settings):
                                                         H2(name),
                                                         _class="profile-header",
                                                         ),
-                                   profile_widgets = [#locations_widget,
+                                   profile_widgets = (#locations_widget,
                                                       resources_widget,
                                                       map_widget,
                                                       incidents_widget,
                                                       reports_widget,
                                                       projects_widget,
                                                       activities_widget,
-                                                      ],
+                                                      ),
                                    )
 
             # Call standard prep
@@ -3220,7 +3221,7 @@ def config(settings):
                                                         H2(record.name),
                                                         _class="profile-header",
                                                         ),
-                                   profile_widgets = [contacts_widget,
+                                   profile_widgets = (contacts_widget,
                                                       map_widget,
                                                       offices_widget,
                                                       resources_widget,
@@ -3228,8 +3229,9 @@ def config(settings):
                                                       activities_widget,
                                                       reports_widget,
                                                       assessments_widget,
-                                                      ]
+                                                      ),
                                    )
+
                 elif r.method == "datalist":
                     # Stakeholder selection page
                     # 2-column datalist, 6 rows per page
@@ -3998,7 +4000,7 @@ def config(settings):
                 result = standard_prep(r)
 
             # Filter Out Docs from Newsfeed & Projects
-            current.response.s3.filter = (table.name != None)
+            r.resource.add_filter(table.name != None)
 
             if r.interactive:
                 s3.crud_strings[tablename] = Storage(

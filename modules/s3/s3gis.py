@@ -80,6 +80,7 @@ from gluon.languages import lazyT, regex_translate
 from gluon.storage import Storage
 
 from s3dal import Rows
+from s3datetime import s3_format_datetime, s3_parse_datetime
 from s3fields import s3_all_meta_field_names
 from s3rest import S3Method
 from s3track import S3Trackable
@@ -685,14 +686,8 @@ class GIS(object):
     @staticmethod
     def geocode_r(lat, lon):
         """
-            Geocode an Address
+            Reverse Geocode a Lat/Lon
             - used by S3LocationSelector
-                      settings.get_gis_geocode_imported_addresses
-
-            @param address: street address
-            @param postcode: postcode
-            @param Lx_ids: list of ancestor IDs
-            @param geocoder: which geocoder service to use
         """
 
         if not lat or not lon:
@@ -1335,6 +1330,7 @@ class GIS(object):
                     mtable.on(mtable.id == stable.marker_id),
                     )
             row = db(query).select(*fields,
+                                   left=left,
                                    limitby=(0, 1)).first()
             if not row:
                 # No configs found at all
@@ -2246,7 +2242,7 @@ class GIS(object):
             - used by GIS.get_location_data() and S3PivotTable.geojson()
 
             @ToDo: Support multiple locations for a single resource
-                   (e.g. a Project wworking in multiple Communities)
+                   (e.g. a Project working in multiple Communities)
         """
 
         db = current.db
@@ -2453,6 +2449,10 @@ class GIS(object):
                         except AttributeError:
                             # FieldMethod
                             ftype = None
+                        except KeyError:
+                            from s3utils import s3_debug
+                            s3_debug("SGIS", "Field %s doesn't exist in table %s" % (fname, tname))
+                            continue
                         attr_cols[fieldname] = (ftype, fname)
 
                 _pkey = str(_pkey)
@@ -2727,18 +2727,19 @@ class GIS(object):
             if len(layers) > 1:
                 layers.exclude(lambda row: row["gis_layer_feature.style_default"] == False)
             if len(layers) == 1:
-                marker = layers.first()
+                layer = layers.first()
             else:
                 # Can't differentiate
-                marker = None
+                layer = None
 
-            if marker:
-                _marker = marker["gis_marker"]
-                marker = dict(image=_marker.image,
-                              height=_marker.height,
-                              width=_marker.width,
-                              gps_marker=marker["gis_style"].gps_marker
-                              )
+            if layer:
+                _marker = layer["gis_marker"]
+                if _marker.image:
+                    marker = dict(image=_marker.image,
+                                  height=_marker.height,
+                                  width=_marker.width,
+                                  gps_marker=layer["gis_style"].gps_marker
+                                  )
 
         if not marker:
             # Default
@@ -3717,7 +3718,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                         #ttable.insert(location_id = location_id,
                         #              tag = "area",
                         #              value = area)
-                    except db._adapter.driver.OperationalError, exception:
+                    except db._adapter.driver.OperationalError, e:
                         current.log.error(sys.exc_info[1])
 
             else:
@@ -4528,7 +4529,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
 
     # -------------------------------------------------------------------------
     @staticmethod
-    def update_location_tree(feature=None, all_locations=False):
+    def update_location_tree(feature=None, all_locations=False, propagating=False):
         """
             Update GIS Locations' Materialized path, Lx locations, Lat/Lon & the_geom
 
@@ -4536,6 +4537,10 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
             - if not provided then update the whole tree
             @param all_locations: passed to recursive calls to indicate that this
             is an update of the whole tree. Used to avoid repeated attempts to
+            update hierarchy locations with missing data (e.g. lacking some
+            ancestor level).
+            @param propagating: passed to recursive calls to indicate that this
+            is a propagation update. Used to avoid repeated attempts to
             update hierarchy locations with missing data (e.g. lacking some
             ancestor level).
 
@@ -4620,16 +4625,15 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 Propagate Lat/Lon down to any Features which inherit from this one
 
                 @param parent: gis_location id of parent
-                @param all_locations: passed to recursive calls to indicate that
-                this is an update of the whole tree
             """
 
+            # No need to filter out deleted since the parent FK is None for these records 
             query = (table.parent == parent) & \
                     (table.inherited == True)
             rows = db(query).select(*fields)
             for row in rows:
                 try:
-                    update_location_tree(row)
+                    update_location_tree(row, propagating=True)
                 except RuntimeError:
                     current.log.error("Cannot propagate inherited latlon to child %s of location ID %s: too much recursion" % \
                         (row.id, parent))
@@ -4889,6 +4893,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 inherited = True
                 lat = Lx_lat
                 lon = Lx_lon
+                wkt = None
             elif path != _path or L0 != L0_name or L1 != L1_name or L2 != name or not wkt:
                 fixup_required = True
 
@@ -4968,7 +4973,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L1_name = Lx.L1
                     L2_name = Lx.name
                     _path = Lx.path
-                    if _path and L0_name and L1_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -4988,7 +4994,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L1_name = Lx.name
                     L2_name = None
                     _path = Lx.path
-                    if _path and L0_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5026,6 +5033,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 inherited = True
                 lat = Lx_lat
                 lon = Lx_lon
+                wkt = None
             elif path != _path or L0 != L0_name or L1 != L1_name or L2 != L2_name or L3 != name or not wkt:
                 fixup_required = True
 
@@ -5109,7 +5117,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L2_name = Lx.L2
                     L3_name = Lx.name
                     _path = Lx.path
-                    if _path and L0_name and L1_name and L2_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name and L2_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5132,7 +5141,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L2_name = Lx.name
                     L3_name = None
                     _path = Lx.path
-                    if _path and L0_name and L1_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5153,7 +5163,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L2_name = None
                     L3_name = None
                     _path = Lx.path
-                    if _path and L0_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5193,6 +5204,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 inherited = True
                 lat = Lx_lat
                 lon = Lx_lon
+                wkt = None
             elif path != _path or L0 != L0_name or L1 != L1_name or L2 != L2_name or L3 != L3_name or L4 != name or not wkt:
                 fixup_required = True
 
@@ -5280,7 +5292,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L3_name = Lx.L3
                     L4_name = Lx.name
                     _path = Lx.path
-                    if _path and L0_name and L1_name and L2_name and L3_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name and L2_name and L3_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5306,7 +5319,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L3_name = Lx.name
                     L4_name = None
                     _path = Lx.path
-                    if _path and L0_name and L1_name and L2_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name and L2_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5330,7 +5344,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L3_name = None
                     L4_name = None
                     _path = Lx.path
-                    if _path and L0_name and L1_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name and L1_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5352,7 +5367,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                     L3_name = None
                     L4_name = None
                     _path = Lx.path
-                    if _path and L0_name:
+                    # Don't try to fixup ancestors when we're coming from a propagate
+                    if propagating or (_path and L0_name):
                         _path = "%s/%s" % (_path, id)
                     else:
                         # This feature needs to be updated
@@ -5394,6 +5410,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 inherited = True
                 lat = Lx_lat
                 lon = Lx_lon
+                wkt = None
             elif path != _path or L0 != L0_name or L1 != L1_name or L2 != L2_name or L3 != L3_name or L4 != L4_name or L5 != name or not wkt:
                 fixup_required = True
 
@@ -5491,7 +5508,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 L4_name = Lx.L4
                 L5_name = Lx.name
                 _path = Lx.path
-                if _path and L0_name and L1_name and L2_name and L3_name and L4_name:
+                # Don't try to fixup ancestors when we're coming from a propagate
+                if propagating or (_path and L0_name and L1_name and L2_name and L3_name and L4_name):
                     _path = "%s/%s" % (_path, id)
                 else:
                     # This feature needs to be updated
@@ -5519,7 +5537,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 L3_name = Lx.L3
                 L4_name = Lx.name
                 _path = Lx.path
-                if _path and L0_name and L1_name and L2_name and L3_name:
+                # Don't try to fixup ancestors when we're coming from a propagate
+                if propagating or (_path and L0_name and L1_name and L2_name and L3_name):
                     _path = "%s/%s" % (_path, id)
                 else:
                     # This feature needs to be updated
@@ -5544,7 +5563,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 L2_name = Lx.L2
                 L3_name = Lx.name
                 _path = Lx.path
-                if _path and L0_name and L1_name and L2_name:
+                # Don't try to fixup ancestors when we're coming from a propagate
+                if propagating or (_path and L0_name and L1_name and L2_name):
                     _path = "%s/%s" % (_path, id)
                 else:
                     # This feature needs to be updated
@@ -5566,7 +5586,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 L1_name = Lx.L1
                 L2_name = Lx.name
                 _path = Lx.path
-                if _path and L0_name and L1_name:
+                # Don't try to fixup ancestors when we're coming from a propagate
+                if propagating or (_path and L0_name and L1_name):
                     _path = "%s/%s" % (_path, id)
                 else:
                     # This feature needs to be updated
@@ -5585,7 +5606,8 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                 L0_name = Lx.L0
                 L1_name = Lx.name
                 _path = Lx.path
-                if _path and L0_name:
+                # Don't try to fixup ancestors when we're coming from a propagate
+                if propagating or (_path and L0_name):
                     _path = "%s/%s" % (_path, id)
                 else:
                     # This feature needs to be updated
@@ -5618,6 +5640,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
             inherited = True
             lat = Lx_lat
             lon = Lx_lon
+            wkt = None
         elif path != _path or L0 != L0_name or L1 != L1_name or L2 != L2_name or L3 != L3_name or L4 != L4_name or L5 != L5_name or not wkt:
             fixup_required = True
 
@@ -6086,7 +6109,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                   "cluster_attribute",     # Optional
                   "cluster_distance",      # Optional
                   "cluster_threshold"      # Optional
-                }]
+                  }]
             @param feature_resources: REST URLs for (filtered) resources to overlay onto the map & their options (List of Dicts):
                 [{"name"      : T("MyLabel"), # A string: the label for the layer
                   "id"        : "search",     # A string: the id for the layer (for manipulation by JavaScript)
@@ -6105,11 +6128,11 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
                   "cluster_threshold",        # Optional (overrides layer_id if-set)
                   "dir",                      # Optional (overrides layer_id if-set)
                   "style",                    # Optional (overrides layer_id if-set)
-                }]
+                  }]
             @param wms_browser: WMS Server's GetCapabilities & options (dict)
                 {"name": T("MyLabel"),     # Name for the Folder in LayerTree
                  "url": string             # URL of GetCapabilities
-                }
+                 }
             @param catalogue_layers: Show all the enabled Layers from the GIS Catalogue
                                      Defaults to False: Just show the default Base layer
             @param legend: True: Show the GeoExt Legend panel, False: No Panel, "float": New floating Legend Panel
@@ -6128,7 +6151,7 @@ page.render('%(filename)s', {format: 'jpeg', quality: '100'});''' % \
             @param mgrs: Use the MGRS Control to select PDFs
                 {"name": string,           # Name for the Control
                  "url": string             # URL of PDF server
-                }
+                 }
                 @ToDo: Also add MGRS Search support: http://gxp.opengeo.org/master/examples/mgrs.html
             @param window: Have viewport pop out of page into a resizable window
             @param window_hide: Have the window hidden by default, ready to appear (e.g. on clicking a button)
@@ -7672,6 +7695,7 @@ class LayerArcREST(Layer):
                 transparent = (self.transparent, (True,)),
                 base = (self.base, (False,)),
                 _base = (self._base, (False,)),
+                format = (self.img_format, ("png",)),
             )
 
             return output
@@ -9160,9 +9184,6 @@ class S3ExportPOI(S3Method):
             @param attr: controller options for this request
         """
 
-        import time
-        tfmt = current.xml.ISOFORMAT
-
         # Determine request Lx
         current_lx = r.record
         if not current_lx: # or not current_lx.level:
@@ -9196,12 +9217,7 @@ class S3ExportPOI(S3Method):
             if msince.lower() == "auto":
                 msince = "auto"
             else:
-                try:
-                    (y, m, d, hh, mm, ss, t0, t1, t2) = \
-                        time.strptime(msince, tfmt)
-                    msince = datetime.datetime(y, m, d, hh, mm, ss)
-                except ValueError:
-                    msince = None
+                msince = s3_parse_datetime(msince)
 
         # Export a combined tree
         tree = self.export_combined_tree(tables,
@@ -9229,7 +9245,7 @@ class S3ExportPOI(S3Method):
         if tree and stylesheet is not None:
             args = Storage(domain=xml.domain,
                            base_url=s3.base_url,
-                           utcnow=datetime.datetime.utcnow().strftime(tfmt))
+                           utcnow=s3_format_datetime())
             tree = xml.transform(tree, stylesheet, **args)
         if tree:
             if as_json:

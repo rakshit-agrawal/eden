@@ -3,7 +3,7 @@
 """
     S3 Adobe PDF codec
 
-    @copyright: 2011-14 (c) Sahana Software Foundation
+    @copyright: 2011-15 (c) Sahana Software Foundation
     @license: MIT
 
     Permission is hereby granted, free of charge, to any person
@@ -53,13 +53,13 @@ try:
     from PIL import ImageOps
     from PIL import ImageStat
     PILImported = True
-except(ImportError):
+except ImportError:
     try:
         import Image
         import ImageOps
         import ImageStat
         PILImported = True
-    except(ImportError):
+    except ImportError:
         PILImported = False
 try:
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT
@@ -88,9 +88,20 @@ except ImportError:
     canvas = Storage()
     canvas.Canvas = None
 
+try:
+    from bidi.algorithm import get_display
+    import arabic_reshaper
+    import unicodedata
+    biDiImported = True
+except ImportError:
+    biDiImported = False
+    from s3 import s3_debug
+    s3_debug("S3PDF", "BiDirectiional Support not available: Install Py-BiDi")
+
 PDF_WIDTH = 0
 PDF_HEIGHT = 1
 
+# -----------------------------------------------------------------------------
 def set_fonts(self):
     """
         DRY Helper function for all classes which use PDF to set the appropriate Fonts
@@ -124,6 +135,38 @@ def set_fonts(self):
         self.font_name = "Helvetica"
         self.font_name_bold = "Helvetica-Bold"
 
+# -----------------------------------------------------------------------------
+def biDiText(text):
+    """
+        Ensure that RTL text is rendered RTL & also that Arabic text is
+        rewritten to use the joined format.
+    """
+
+    text = s3_unicode(text)
+
+    if biDiImported and current.deployment_settings.get_pdf_bidi():
+
+        isArabic = False
+        isBidi = False
+    
+        for c in text:
+            cat = unicodedata.bidirectional(c)
+    
+            if cat in ("AL", "AN"):
+                isArabic = True
+                isBidi = True
+                break
+            elif cat in ("R", "RLE", "RLO"):
+                isBidi = True
+    
+        if isArabic:
+            text = arabic_reshaper.reshape(text)
+    
+        if isBidi:
+            text = get_display(text)
+
+    return text
+
 # =============================================================================
 class S3RL_PDF(S3Codec):
     """
@@ -136,7 +179,6 @@ class S3RL_PDF(S3Codec):
         """
 
         # Error codes
-        T = current.T
         self.ERROR = Storage(
             PIL_ERROR = "PIL (Python Image Library) not installed, images cannot be embedded in the PDF report",
             RL_ERROR = "Python needs the ReportLab module installed for PDF export"
@@ -190,6 +232,9 @@ class S3RL_PDF(S3Codec):
                                           B - Both
             @keyword pdf_paper_alignment: Portrait (default) or Landscape
             @keyword use_colour:      True to add colour to the cells. default False
+
+            @ToDo: Add Page Numbers in Footer:
+                   http://www.blog.pythonlibrary.org/2013/08/12/reportlab-how-to-add-page-numbers/
         """
 
         if not PILImported:
@@ -211,12 +256,19 @@ class S3RL_PDF(S3Codec):
         # Get the title & filename
         now = current.request.now.isoformat()[:19].replace("T", " ")
         title = attr.get("pdf_title")
-        if title == None:
+        if title is None:
             title = "Report"
         docTitle = "%s %s" % (title, now)
-        self.filename = attr.get("pdf_filename")
-        if self.filename == None:
-            self.filename = "%s_%s.pdf" % (title, now)
+        filename = attr.get("pdf_filename")
+        if filename is None:
+            if not isinstance(title, str):
+                # Must be str not unicode
+                title = title.encode("utf-8")
+            filename = "%s_%s.pdf" % (title, now)
+        elif len(filename) < 5 or filename[-4:] != ".pdf":
+            # Add extension
+            filename = "%s.pdf" % filename
+        self.filename = filename
 
         # Get the Doc Template
         paper_size = attr.get("paper_size")
@@ -250,7 +302,6 @@ class S3RL_PDF(S3Codec):
         # Build report template
 
         # Get data for the body of the text
-        data = None
         body_flowable = None
 
         doc.calc_body_size(header_flowable, footer_flowable)
@@ -320,7 +371,7 @@ class S3RL_PDF(S3Codec):
             # Static HTML
             html = rules
 
-        parser = S3html2pdf(pageWidth = printable_width,
+        parser = S3html2pdf(pageWidth=printable_width,
                             exclude_class_list=["tabs"])
         result = parser.parse(html)
         return result
@@ -591,6 +642,7 @@ class EdenDocTemplate(BaseDocTemplate):
             if style == None:
                 styleSheet = getSampleStyleSheet()
                 style = styleSheet["Normal"]
+            text = biDiText(text)
             para = Paragraph(text, style)
             if append and self.body_flowable:
                 self.body_flowable.append(para)
@@ -684,7 +736,7 @@ class S3PDFTable(object):
                 dvalue = None
                 while True:
                     if isinstance(value, (basestring, lazyT)):
-                        dvalue = value
+                        dvalue = biDiText(value)
                     elif isinstance(value, IMG):
                         dvalue = S3html2pdf.parse_img(value, selector.field.uploadfolder)
                         if dvalue:
@@ -694,14 +746,14 @@ class S3PDFTable(object):
                             value = value.components[0]
                             continue
                         else:
-                            dvalue = s3_unicode(value)
+                            dvalue = biDiText(value)
                     else:
-                        dvalue = s3_unicode(value)
+                        dvalue = biDiText(value)
                     break
                 dappend(dvalue)
-            rdata.append(data)
+            rappend(data)
         self.raw_data = rdata
-        self.labels = [selector.label for selector in self.rfields]
+        self.labels = [biDiText(selector.label) for selector in self.rfields]
         self.list_fields = [selector.fname for selector in self.rfields]
         self.pdf_groupby = groupby
         self.hideComments = hide_comments
@@ -1116,7 +1168,7 @@ class S3PDFTable(object):
                  ("VALIGN", (0, 0), (-1, -1), "TOP"),
                  ("LINEBELOW", (0, 0), (endCol, 0), 1, Color(0, 0, 0)),
                  ("FONTNAME", (0, 0), (endCol, 0), font_name_bold),
-                ]
+                 ]
         sappend = style.append
         if colour_required:
             sappend(("BACKGROUND", (0, 0), (endCol, 0), self.headerColour))
@@ -1151,13 +1203,17 @@ class S3PDFTable(object):
 
 # =============================================================================
 class S3html2pdf():
+    """
+        Class that takes HTML in the form of web2py helper objects
+        and converts it to PDF
+    """
 
     def __init__(self,
                  pageWidth,
                  exclude_class_list = []):
         """
-            Method that takes html in the web2py helper objects
-            and converts it to pdf
+            @param pageWidth:
+            @param exclude_class_list:
         """
 
         # Fonts
@@ -1177,7 +1233,7 @@ class S3html2pdf():
         self.titlestyle.fontName = self.font_name_bold
         self.titlestyle.fontSize = 16
         self.normalstyle = self.plainstyle
-        # To add more pdf styles define the style above (just like the titlestyle)
+        # To add more PDF styles define the style above (just like the titlestyle)
         # Then add the style and the name to the lookup dict below
         # These can then be added to the html in the code as follows:
         # TD("Waybill", _class="pdf_title")
@@ -1186,6 +1242,7 @@ class S3html2pdf():
     # -------------------------------------------------------------------------
     def parse(self, html):
         """
+            Entry point for class
         """
 
         result = self.select_tag(html)
@@ -1210,9 +1267,9 @@ class S3html2pdf():
             return self.parse_div(html)
         elif (isinstance(html, basestring) or isinstance(html, lazyT)):
             if title:
-                para = [Paragraph(html, self.boldstyle)]
+                para = [Paragraph(biDiText(html), self.boldstyle)]
             else:
-                para = [Paragraph(html, self.normalstyle)]
+                para = [Paragraph(biDiText(html), self.normalstyle)]
             self.normalstyle = self.plainstyle
             return para
         return None
@@ -1292,13 +1349,13 @@ class S3html2pdf():
             src = html.attributes["_src"]
             root_dir = "%s%s%s" % (sep, current.request.application, sep)
             if uploadfolder:
-                src = src.rsplit(sep, 1)
+                src = src.rsplit("/", 1) # Don't use os.sep here
                 src = os.path.join(uploadfolder, src[1])
             elif src.startswith("%sstatic" % root_dir):
                 src = src.split(root_dir)[-1]
                 src = os.path.join(current.request.folder, src)
             else:
-                src = src.rsplit(sep, 1)
+                src = src.rsplit("/", 1) # Don't use os.sep here
                 src = os.path.join(current.request.folder,
                                    "uploads%s" % sep, src[1])
             if os.path.exists(src):
@@ -1325,6 +1382,7 @@ class S3html2pdf():
         I.drawWidth = width
         return [I]
 
+    # -------------------------------------------------------------------------
     def parse_p(self, html):
         """
             Parses a P element and converts it into a format for ReportLab
@@ -1378,7 +1436,7 @@ class S3html2pdf():
                       hAlign="LEFT",
                       vAlign="Top",
                       )
-        cw = table._colWidths
+        #cw = table._colWidths
         return [table]
 
     # -------------------------------------------------------------------------

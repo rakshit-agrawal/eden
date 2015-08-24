@@ -57,9 +57,9 @@ except ImportError:
 from gluon import current, HTTP, IS_EMPTY_OR
 from gluon.storage import Storage
 
-from s3utils import S3DateTime
+from s3datetime import S3DateTime
 from s3validators import IS_TIME_INTERVAL_WIDGET, IS_UTC_DATETIME
-from s3widgets import S3DateTimeWidget, S3TimeIntervalWidget
+from s3widgets import S3CalendarWidget, S3TimeIntervalWidget
 
 # -----------------------------------------------------------------------------
 class S3Task(object):
@@ -122,22 +122,22 @@ class S3Task(object):
 
         table.times_failed.readable = False
 
-        field = table.start_time
-        field.represent = lambda dt: \
-            S3DateTime.datetime_represent(dt, utc=True)
-        field.widget = S3DateTimeWidget(past=0)
-        field.requires = IS_UTC_DATETIME(
-                format=current.deployment_settings.get_L10n_datetime_format()
-                )
-
-        field = table.stop_time
-        field.represent = lambda dt: \
-            S3DateTime.datetime_represent(dt, utc=True)
-        field.widget = S3DateTimeWidget(past=0)
-        field.requires = IS_EMPTY_OR(
-                            IS_UTC_DATETIME(
-                format=current.deployment_settings.get_L10n_datetime_format()
-                ))
+        # Configure start/stop time fields
+        for fn in ("start_time", "stop_time"):
+            field = table[fn]
+            field.represent = lambda dt: \
+                            S3DateTime.datetime_represent(dt, utc=True)
+            field.requires = IS_UTC_DATETIME()
+            set_min = set_max = None
+            if fn == "start_time":
+                set_min = "#scheduler_task_stop_time"
+            elif fn == "stop_time":
+                set_max = "#scheduler_task_start_time"
+            field.widget = S3CalendarWidget(past = 0,
+                                            set_min = set_min,
+                                            set_max = set_max,
+                                            timepicker = True,
+                                            )
 
         if not task:
             import uuid
@@ -243,7 +243,7 @@ class S3Task(object):
             @param timeout: The length of time available for the task to complete
                             - default 300s (5 mins)
         """
-        
+
         if args is None:
             args = []
         if vars is None:

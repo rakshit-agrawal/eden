@@ -65,11 +65,18 @@ from gluon import *
 from gluon.storage import Storage
 from gluon.tools import callback
 
-from s3rest import S3Method
+from s3datetime import s3_decode_iso_datetime, S3DateTime
 from s3query import S3ResourceField, S3ResourceQuery, S3URLQuery
+from s3rest import S3Method
 from s3utils import s3_get_foreign_key, s3_unicode, S3TypeConverter
 from s3validators import *
-from s3widgets import ICON, S3DateWidget, S3DateTimeWidget, S3GroupedOptionsWidget, S3MultiSelectWidget, S3HierarchyWidget
+from s3widgets import ICON, \
+                      S3CalendarWidget, \
+                      S3DateWidget, \
+                      S3DateTimeWidget, \
+                      S3GroupedOptionsWidget, \
+                      S3MultiSelectWidget, \
+                      S3HierarchyWidget
 
 # Compact JSON encoding
 SEPARATORS = (",", ":")
@@ -673,8 +680,9 @@ class S3DateFilter(S3RangeFilter):
                 return ""
         else:
             ftype = rfield.ftype
+
+        # S3CalendarWidget requires a Field
         if not field:
-            # S3DateTimeWidget requires a Field
             if rfield:
                 tname, fname = rfield.tname, rfield.fname
             else:
@@ -683,63 +691,89 @@ class S3DateFilter(S3RangeFilter):
                     raise SyntaxError("%s: _id parameter required " \
                                       "when rendered without resource." % \
                                       self.__class__.__name__)
-            dtformat = current.deployment_settings.get_L10n_date_format()
-            field = Field(fname, ftype,
-                          requires = IS_DATE_IN_RANGE(format = dtformat))
+            field = Field(fname, ftype, requires = IS_UTC_DATE())
             field.tablename = field._tablename = tname
 
-        # Options
+        # Classes and labels for the individual date/time inputs
+        T = current.T
+        input_class = self._input_class
+        input_labels = self.input_labels
+
+        # Picker options
         hide_time = self.opts.get("hide_time", False)
 
         # Generate the input elements
-        T = current.T
+        filter_widget = DIV(_id=_id, _class=_class)
+        append = filter_widget.append
+
         selector = self.selector
-        _variable = self._variable
-        input_class = self._input_class
-        input_labels = self.input_labels
-        input_elements = DIV(_id=_id, _class=_class)
-        append = input_elements.append
+        get_variable = self._variable
         for operator in self.operator:
 
             input_id = "%s-%s" % (_id, operator)
 
-            # Determine the widget class
-            if ftype == "date":
-                widget = S3DateWidget()
-            else:
-                opts = {}
-                if operator == "ge":
-                    opts["set_min"] = "%s-%s" % (_id, "le")
-                elif operator == "le":
-                    opts["set_max"] = "%s-%s" % (_id, "ge")
-                widget = S3DateTimeWidget(hide_time=hide_time, **opts)
+            # Do we want a timepicker?
+            timepicker = False if ftype == "date" or hide_time else True
+
+            # Make the two inputs constrain each other
+            set_min = set_max = None
+            if operator == "ge":
+                set_min = "#%s-%s" % (_id, "le")
+            elif operator == "le":
+                set_max = "#%s-%s" % (_id, "ge")
+
+            # Instantiate the widget
+            widget = S3CalendarWidget(timepicker = timepicker,
+                                      set_min = set_min,
+                                      set_max = set_max,
+                                      )
 
             # Populate with the value, if given
             # if user has not set any of the limits, we get [] in values.
-            variable = _variable(selector, operator)
-            value = values.get(variable, None)
-            if value not in [None, []]:
-                if type(value) is list:
-                    value = value[0]
-            else:
+            value = values.get(get_variable(selector, operator))
+            if value in (None, []):
                 value = None
+            elif type(value) is list:
+                value = value[0]
+
+            # Widget expects a string in local calendar and format
+            if isinstance(value, basestring):
+                # URL filter or filter default come as string in
+                # Gregorian calendar and ISO format => convert into
+                # a datetime
+                dt = s3_decode_iso_datetime(value)
+            else:
+                # Assume datetime
+                dt = value
+            if dt:
+                if timepicker:
+                    dtstr = S3DateTime.datetime_represent(dt, utc=False)
+                else:
+                    dtstr = S3DateTime.date_represent(dt, utc=False)
+            else:
+                dtstr = None
 
             # Render the widget
-            picker = widget(field, value,
-                            _name=input_id,
-                            _id=input_id,
-                            _class=input_class)
+            picker = widget(field,
+                            dtstr,
+                            _class = input_class,
+                            _id = input_id,
+                            _name = input_id,
+                            )
 
             # Append label and widget
-            append(DIV(
-                    DIV(LABEL("%s:" % T(input_labels[operator]),
-                            _for=input_id),
-                        _class="range-filter-label"),
-                    DIV(picker,
-                        _class="range-filter-widget"),
-                    _class="range-filter-field"))
+            append(DIV(DIV(LABEL("%s:" % T(input_labels[operator]),
+                                 _for=input_id,
+                                 ),
+                           _class="range-filter-label",
+                           ),
+                       DIV(picker,
+                           _class="range-filter-widget",
+                           ),
+                       _class="range-filter-field",
+                       ))
 
-        return input_elements
+        return filter_widget
 
 # =============================================================================
 class S3SliderFilter(S3RangeFilter):
@@ -876,7 +910,8 @@ class S3LocationFilter(S3FilterWidget):
         translate = settings.get_L10n_translate_gis_location()
         if translate:
             language = current.session.s3.language
-            if language == settings.get_L10n_default_language():
+            #if language == settings.get_L10n_default_language():
+            if language == "en": # Can have a default language for system & yet still want to translate from base English
                 translate = False
         self.translate = translate
 
@@ -954,6 +989,13 @@ class S3LocationFilter(S3FilterWidget):
             if "multiselect-filter-widget" not in _class:
                 _class = "%s multiselect-filter-widget" % _class
 
+            header_opt = opts.get("header", False)
+            if header_opt is False or header_opt is True:
+                setting = current.deployment_settings \
+                                 .get_ui_location_filter_bulk_select_option()
+                if setting is not None:
+                    header_opt = setting
+
             # Add one widget per level
             first = True
             hide = True
@@ -967,7 +1009,7 @@ class S3LocationFilter(S3FilterWidget):
                 # Find relevant values to pre-populate the widget
                 _values = values.get("%s$%s__%s" % (fname, level, operator))
                 w = S3MultiSelectWidget(filter = opts.get("filter", "auto"),
-                                        header = opts.get("header", False),
+                                        header = header_opt,
                                         selectedList = opts.get("selectedList", 3),
                                         noneSelectedText = T("Select %(location)s") % \
                                                              dict(location=levels[level]["label"]))
@@ -1709,7 +1751,7 @@ class S3OptionsFilter(S3FilterWidget):
             numeric = rfield.ftype in ("integer", "id") or \
                       rfield.ftype[:9] == "reference"
             for _val in values:
-                if numeric:
+                if numeric and _val is not None:
                     try:
                         val = int(_val)
                     except ValueError:
@@ -1826,11 +1868,11 @@ class S3OptionsFilter(S3FilterWidget):
                 none = current.messages["NONE"]
             options.append((None, none))
 
-        if not opts.get("multiple") and not self.values:
+        if not opts.get("multiple", True) and not self.values:
             # Browsers automatically select the first option in single-selects,
             # but that doesn't filter the data, so the first option must be
             # empty if we don't have a default:
-            options.insert(0, ("", ""))
+            options.insert(0, ("", "")) # XML("&nbsp;") better?
 
         # Sort the options
         return (ftype, options, None)
@@ -1866,12 +1908,16 @@ class S3HierarchyFilter(S3FilterWidget):
     """
         Filter widget for hierarchical types
 
-        Specific options:
+        Specific options (see also: S3HierarchyWidget):
 
             lookup              name of the lookup table
             represent           representation method for the key
             multiple            allow selection of multiple options
             leafonly            only lead nodes can be selected
+            cascade             automatically select child nodes when
+                                selecting a parent node
+            bulk_select         provide an option to select/deselect all
+                                nodes
     """
 
     _class = "hierarchy-filter"
@@ -1901,11 +1947,18 @@ class S3HierarchyFilter(S3FilterWidget):
 
         # Instantiate the widget
         opts = self.opts
+        bulk_select = current.deployment_settings \
+                             .get_ui_hierarchy_filter_bulk_select_option()
+        if bulk_select is None:
+            bulk_select = opts.get("bulk_select", False)
         w = S3HierarchyWidget(lookup = opts.get("lookup"),
                               represent = opts.get("represent"),
                               multiple = opts.get("multiple", True),
                               leafonly = opts.get("leafonly", True),
+                              cascade = opts.get("cascade", False),
+                              bulk_select = bulk_select,
                               filter = opts.get("filter"),
+                              none = opts.get("none"),
                               )
 
         # Render the widget

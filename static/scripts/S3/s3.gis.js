@@ -1,4 +1,5 @@
 /**
+/**
  * Used by the Map (modules/s3/s3gis.py)
  * This script is in Static to allow caching
  * Dynamic constants (e.g. Internationalised strings) are set in server-generated script
@@ -107,7 +108,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         var s3 = map.s3;
 
         // Allow more room for Features
-        map.Z_INDEX_BASE.Popup = 800;
+        map.Z_INDEX_BASE.Popup = 900;
 
         // Resize the Map when the Browser window is resized
         var map_div = $('#' + map_id + '_panel');
@@ -333,6 +334,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
      * Parameters:
      * layer_id - {String} ID of the layer to be refreshed
      * queries - {Array} Optional list of Queries to be applied to the Layer
+     *                   [[key, value], [key, value], ...]
      */
     S3.gis.refreshLayer = function(layer_id, queries) {
         var maps = S3.gis.maps;
@@ -367,7 +369,8 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                             // Reload the layer
                             for (j=0; j < jlen; j++) {
                                 strategy = strategies[j];
-                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.BBOX') {
+                                if (strategy.CLASS_NAME == 'OpenLayers.Strategy.BBOX' ||
+                                    strategy.CLASS_NAME == 'OpenLayers.Strategy.ZoomBBOX') {
                                     // Set bounds to maxExtent so that filter doesn't apply
                                     strategy.bounds = null;
                                     strategy.triggerRead();
@@ -1817,6 +1820,11 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
         } else {
             var isBaseLayer = false;
         }
+        if (undefined != layer.format) {
+            var format = layer.format;
+        } else {
+            var format = 'png';
+        }
         if (undefined != layer.transparent) {
             var transparent = layer.transparent;
         } else {
@@ -1835,6 +1843,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
                 layers: 'show:' + layers,
                 isBaseLayer: isBaseLayer,
                 transparent: transparent,
+                format: format,
                 dir: dir,
                 // This is used to Save State
                 s3_layer_id: layer.id,
@@ -5402,7 +5411,7 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             zoom: zoom || state.zoom,
             layers: layersStr,
             plugins: pluginsStr
-        }
+        };
         var options = s3.options;
         if (options.pe_id) {
             json_data['pe_id'] = options.pe_id;
@@ -5519,6 +5528,9 @@ OpenLayers.ProxyHost = S3.Ap.concat('/gis/proxy?url=');
             }
             if (key.s3_style) {
                 layer_config['style'] = key.s3_style;
+            }
+            if (key.dir) {
+                layer_config['dir'] = key.dir;
             }
             layers.push(layer_config);
         });
