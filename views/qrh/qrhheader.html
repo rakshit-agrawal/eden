@@ -25,9 +25,13 @@
       <a class="navbar-brand" href="/eden/qrh/volunteerAddOrSearch">Quick Response Host</a>
       <div class="container-fluid">
         <ul class="nav navbar-nav">
-          <li class="active"><a href="/eden/qrh/volunteerAddOrSearch">Volunteers</a></li>
-          <li><a href="#">Equipment</a></li>
-          <li><a href="#">Warehouses</a></li>
+          {{for i in module_list:}}
+            {{if i==host_type:}}
+              <li class="active"><a href={{=URL('qrh','base',args=[i.lower()])}}>{{=i}}</a></li>
+            {{else:}}
+              <li><a href={{=URL('qrh','base',args=[i.lower()])}}>{{=i}}</a></li>
+            {{pass}}
+          {{pass}}
         </ul>
       </div>
     </nav>

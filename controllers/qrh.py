@@ -19,6 +19,8 @@ def host_volunteer(function = None, results={}):
         results['name'] = "Create a new volunteer"
     elif function == "list":
         results['name'] = "List all volunteers"
+
+
     return results
 
 
@@ -50,6 +52,8 @@ def index():
 
     return output
 
+def qrhheader():
+    return dict(module_list=HOSTS.keys())
 
 def base():
     """
@@ -67,6 +71,8 @@ def base():
     except KeyError, e:
         redirect(URL('qrh','index'))
 
+    return_fields['host_type'] = host_type.title()
+    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
 
     return return_fields
 
@@ -86,6 +92,8 @@ def create_entry():
         return_fields = HOSTS[host_type](function="create")
     except KeyError, e:
         redirect(URL('qrh','index'))
+    return_fields['host_type'] = host_type.title()
+    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
 
     return return_fields
 
@@ -104,5 +112,8 @@ def list_entries():
         return_fields = HOSTS[host_type](function="list")
     except KeyError, e:
         redirect(URL('qrh','index'))
+
+    return_fields['host_type'] = host_type.title()
+    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
 
     return return_fields
