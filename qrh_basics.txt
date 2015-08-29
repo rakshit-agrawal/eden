@@ -1,0 +1,15 @@
+QRH has two layers of extension over eden:
+
+1. Views based layer.
+2. Crowdsourced communication
+
+1. Views based layer.
+    - We have layers of easy access views and forms
+    - These make use of standard eden data tables underneath but provide some top level solutions to
+      make these tasks easier
+    - Based on the type of host option being used, we have pre-population options
+
+2. Crowdsourced communication
+    - Every instance is holding some communication with a base url
+    - It keeps on mapping data stored locally with data stored at server level
+    - It follows the queuing setup described in our paper
