@@ -1,22 +1,23 @@
 {{ include "qrh/qrhheader.html" }}
 
 
-
     <div class="container-fluid">
-    <div class="row">
-        <div class="col-md-1"></div>
-        <div class="col-md-10">
-          <h1>{{=name}}</h1>
-        </div>
-      </div>
 
       <div class="row">
-        <div class="col-md-4"></div>
+        <div class="col-md-1"></div>
         <div class="col-md-6">
-          {{=name}}
+          <h1>{{=message}}</h1>
         </div>
       </div>
+
+        {{for i in options:}}
+      <div class="col-md-12">
+          {{=i['object']}}
+      </div>
+        {{pass}}
+
     </div>
+
     <script type="text/javascript">
       $( function () {
         $('#showFields').on('click', function () {

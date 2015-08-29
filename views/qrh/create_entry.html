@@ -1,29 +1,18 @@
 {{ include "qrh/qrhheader.html" }}
 
-
-
     <div class="container-fluid">
-    <div class="row">
+      <div class="row">
         <div class="col-md-1"></div>
         <div class="col-md-10">
-          <h1>{{=name}}</h1>
+          <h1>The new volunteer is a..</h1>
         </div>
       </div>
 
-      <div class="row">
-        <div class="col-md-4"></div>
-        <div class="col-md-6">
-          {{=name}}
-        </div>
+        {{for i in options:}}
+      <div class="col-md-6">
+          {{=i['object']}}
       </div>
+        {{pass}}
+
     </div>
-    <script type="text/javascript">
-      $( function () {
-        $('#showFields').on('click', function () {
-          $('.collapse').toggle();
-        });
-        $("#hrm_human_resource_start_date").datepicker( "setDate", new Date());
-        $('#hrm_human_resource_person_id_title__row').hide();
-      });
-    </script>
 {{ include "qrh/qrhfooter.html" }}
