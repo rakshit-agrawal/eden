@@ -11,6 +11,21 @@ module = request.controller
 if not settings.has_module(module):
     raise HTTP(404, body="Module disabled: %s" % module)
 
+def nothing(function=None, results={}):
+    if function == "base":
+        results['name'] = "QuickResponseHost"
+        results['message'] = "Please select the host type"
+        results['options'] = []
+        for i in [key for key in HOSTS.keys() if key!="nothing"]:
+            results['options'].append(dict(object = A(i.title(),
+                                                      target=URL('qrh','base',args=[i]),
+                                                      _class='btn btn-default btn-block btn-lg main-btn col-md-6',
+                                                      _role='button',
+                                                      _href=URL('qrh','base',args=[i])),
+                                           action="base"))
+
+        return results
+
 
 def host_volunteer(function = None, results={}):
     if function == "base":
@@ -106,6 +121,7 @@ def host_assets(function = None, results={}):
 
 
 HOSTS = {
+    'nothing': nothing,
     'volunteer': host_volunteer,
     'assets': host_assets,
 }
@@ -135,7 +151,7 @@ def base():
     if len(request.args)>0:
         host_type = request.args(0)
     else:
-        redirect(URL('qrh','index'))
+        host_type = "nothing"
 
     try:
         return_fields = HOSTS[host_type](function="base")
@@ -143,7 +159,7 @@ def base():
         redirect(URL('qrh','index'))
 
     return_fields['host_type'] = host_type.title()
-    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
+    return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
 
     return return_fields
 
@@ -174,7 +190,7 @@ def create_entry():
                 redirect(URL('qrh','index'))
 
     return_fields['host_type'] = host_type.title()
-    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
+    return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
 
     return return_fields
 
@@ -195,6 +211,6 @@ def list_entries():
         redirect(URL('qrh','index'))
 
     return_fields['host_type'] = host_type.title()
-    return_fields['module_list'] = [i.title() for i in HOSTS.keys()]
+    return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
 
     return return_fields
