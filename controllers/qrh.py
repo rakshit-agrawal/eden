@@ -3,6 +3,8 @@
 """
     QuickResponseHost Module - Controllers
 """
+from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent
+
 
 __author__ = 'rakshit'
 
@@ -27,7 +29,7 @@ def nothing(function=None, results={}):
         return results
 
 
-def host_volunteer(function = None, results={}):
+def host_volunteer(function = None, results={}, category=None):
     if function == "base":
         results['name'] = "Volunteer"
         results['message'] = "I would like to"
@@ -47,47 +49,67 @@ def host_volunteer(function = None, results={}):
 
     elif function == "create":
         results['name'] = "Create a new volunteer"
-        results['message'] = "I would like to"
+        results['message'] = "The new volunteer is a.."
         results['options'] = []
         results['options'].append(dict(object = A('Volunteer with first aid skills',
-                                                  target=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                             vars={'category':"first_aid"}),
+                                                  target=URL('qrh','entry',args=["volunteer", "first_aid"]),
                                                   _class='btn btn-default btn-block btn-lg main-btn',
                                                   _role='button',
-                                                  _href=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                            vars={'category':"first_aid"})),
+                                                  _href=URL('qrh','entry',args=["volunteer", "first_aid"])),
                                        action="create"))
         results['options'].append(dict(object = A('Volunteer with tech support skills',
-                                                  target=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                             vars={'category':"tech_support"}),
+                                                  target=URL('qrh','entry',args=["volunteer", "tech_support"]),
                                                   _class='btn btn-default btn-block btn-lg main-btn',
                                                   _role='button',
-                                                  _href=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                            vars={'category':"tech_support"})),
+                                                  _href=URL('qrh','entry',args=["volunteer", "tech_support"])),
                                        action="create"))
         results['options'].append(dict(object = A('Lead volunteer',
-                                                  target=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                             vars={'category':"lead"}),
+                                                  target=URL('qrh','entry',args=["volunteer", "lead"]),
                                                   _class='btn btn-default btn-block btn-lg main-btn',
                                                   _role='button',
-                                                  _href=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                            vars={'category':"lead"})),
+                                                  _href=URL('qrh','entry',args=["volunteer", "lead"])),
                                        action="create"))
         results['options'].append(dict(object = A('General volunteer',
-                                                  target=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                             vars={'category':"general"}),
+                                                  target=URL('qrh','entry',args=["volunteer", "general"]),
                                                   _class='btn btn-default btn-block btn-lg main-btn',
                                                   _role='button',
-                                                  _href=URL('qrh','create_entry',args=["volunteer", "specialized"],
-                                                            vars={'category':"general"})),
+                                                  _href=URL('qrh','entry',args=["volunteer", "general"])),
                                        action="create"))
 
+    elif function == "entry":
+        # Perform preset functions of Tech Support entry
         """
-    firstAidLink = A('Volunteer with first aid skills', target='volunteerCategories', _class='btn btn-default btn-block btn-lg main-btn',  _role='button', _href='createAid/')
-    techSupport = A('Volunteer with tech support skills', target='volunteerSearch', _class='btn btn-default btn-block btn-lg main-btn', _role='button', _href='createTech')
-    leadVolunteer = A('Lead volunteer', target='volunteerCategories', _class='btn btn-default btn-block btn-lg main-btn',  _role='button', _href='createLeader')
-    generalVolunteer = A('General volunteer', target='volunteerSearch', _class='btn btn-default btn-block btn-lg main-btn', _role='button', _href='createGeneral')
-    """
+            Name
+            Dat of Birth
+            Sex
+            Normal job
+            Mobile Phone
+            Email
+            Organization
+            Past job records
+        """
+        #form = SQLFORM.factory(s3db.hrm_human_resource, s3db.pr_person_details)
+        form = SQLFORM.factory(
+            Field('name',label="Name"),
+            Field('dob', 'date',label = "Date of Birth"),
+            Field('sex',requires=IS_IN_SET(("Male", "Female", "Other")), widget = SQLFORM.widgets.radio.widget),
+            Field('mobile', label="Mobile No."),
+            Field('email', label="Email", requires = IS_EMAIL(error_message='invalid email!')),
+            Field('role', readable = (category is None),writable = (category is None))
+        )
+
+        form = S3SQLCustomForm("name")
+
+        #if form.validate():
+
+        #    if category == "first_aid":
+        #        role = "First Aid"
+        #        redirect(URL('qrh',form.vars.name))
+        s3db.configure("pr_person", crud_form=form)
+
+        results['message'] = "Volunteer details are:"
+        results['form'] = form
+
     elif function == "list":
         results['name'] = "List all volunteers"
 
@@ -185,9 +207,39 @@ def create_entry():
         if request.vars.has_key('category'):
             # Perform actions as per the category
             try:
-                return_fields = HOSTS[host_type](function="create")
+                category = request.vars['category']
+                return_fields = HOSTS[host_type](function="create", category=category)
             except KeyError, e:
                 redirect(URL('qrh','index'))
+
+                pass
+
+
+    return_fields['host_type'] = host_type.title()
+    return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
+
+    return return_fields
+
+def entry():
+    """
+
+    :return:
+    """
+    if len(request.args)>0:
+        host_type = request.args(0)
+    else:
+        redirect(URL('qrh','index'))
+
+    if len(request.args)>1:
+        try:
+            category = request.args(1)
+            return_fields = HOSTS[host_type](function="entry", category=category)
+        except KeyError, e:
+            redirect(URL('qrh','index'))
+
+    else:
+            return_fields = HOSTS[host_type](function="entry")
+
 
     return_fields['host_type'] = host_type.title()
     return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
