@@ -896,7 +896,7 @@ def vol_volunteer_controller():
             output = s3db.hrm_map_popup(r)
         return output
     s3.postp = postp
-
+    print(s3_rest_controller("hrm", "human_resource")['form'])
     return current.rest_controller("hrm", "human_resource")
 
 # -----------------------------------------------------------------------------
