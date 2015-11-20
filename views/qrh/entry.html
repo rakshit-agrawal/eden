@@ -1,17 +1,18 @@
 {{ include "qrh/qrhheader.html" }}
-<style>
-    tr#qrhvolunteer_dob__row {
-        display: none;
-    }
 
-    tr#qrhvolunteer_role__row {
+<style>
+    {{for i in to_hide:}}
+    tr{{=i}} {
         display: none;
     }
+    {{pass}}
+
 
     button#hideFields {
         display: none;
     }
 </style>
+
 <div class="container-fluid">
     <div class="row">
         <div class="col-md-1"></div>

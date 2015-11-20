@@ -99,11 +99,17 @@ def host_volunteer(function = None, results={}, category=None):
 
         results['message'] = "Volunteer details are:"
         results['form'] = form
-        results['to_hide'] = ['#qrhvolunteer_dob__row', '#qrhvolunteer_role__row']
+        results['to_hide'] = ['#qrhvolunteer_dob__row',
+                              '#qrhvolunteer_role__row',
+                              '#qrhvolunteer_organization__row',
+                              '#qrhvolunteer_normal_job__row']
 
     elif function == "list":
-        results['name'] = "List all volunteers"
-
+        results['name'] = "Volunteers are:"
+        results['headers'] = ["ID", "Name", "Mobile no.", "Email", "Role", "Date of Birth", "Sex"]
+        results['entries'] = []
+        entries = db(s3db.qrhvolunteer.id>0).select(orderby=~s3db.qrhvolunteer.doj)
+        results['entries'] = entries
 
     return results
 
@@ -133,7 +139,10 @@ def host_assets(function = None, results={}):
 
 
     elif function == "list":
-        results['name'] = "List all assets"
+        results['name'] = "Assets are:"
+        results['headers'] = []
+        results['entries'] = []
+
     return results
 
 

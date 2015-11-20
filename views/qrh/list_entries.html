@@ -1,29 +1,59 @@
 {{ include "qrh/qrhheader.html" }}
 
+<style>
+    .custab {
+        border: 1px solid #ccc;
+        padding: 5px;
+        margin: 5% 0;
+        box-shadow: 3px 3px 2px #ccc;
+        transition: 0.5s;
+    }
+
+    .custab:hover {
+        box-shadow: 3px 3px 0px transparent;
+        transition: 0.5s;
+    }
+</style>
 
 
-    <div class="container-fluid">
+<div class="container-fluid">
     <div class="row">
         <div class="col-md-1"></div>
         <div class="col-md-10">
-          <h1>{{=name}}</h1>
+            <h1>{{=name}}</h1>
         </div>
-      </div>
-
-      <div class="row">
-        <div class="col-md-4"></div>
-        <div class="col-md-6">
-          {{=name}}
-        </div>
-      </div>
     </div>
-    <script type="text/javascript">
-      $( function () {
-        $('#showFields').on('click', function () {
-          $('.collapse').toggle();
-        });
-        $("#hrm_human_resource_start_date").datepicker( "setDate", new Date());
-        $('#hrm_human_resource_person_id_title__row').hide();
-      });
-    </script>
+
+    <div class="col-md-4"></div>
+
+    <div class="row col-md-6 col-md-offset-2 custyle">
+        <table class="table custab">
+            <thead>
+            <tr>
+
+                {{for i in headers:}}
+                <th>{{=i}}</th>
+                {{pass}}
+            </tr>
+
+            </thead>
+            {{for i,entry in enumerate(entries):}}
+
+            <tr>
+                <td>{{=i+1}}</td>
+                <td>{{=entry.name}}</td>
+                <td>{{=entry.mobile}}</td>
+                <td>{{=entry.email}}</td>
+                <td>{{=entry.role}}</td>
+                <td>{{=entry.dob}}</td>
+                <td>{{=entry.sex}}</td>
+            </tr>
+            {{pass}}
+
+        </table>
+    </div>
+
+
+</div>
+
 {{ include "qrh/qrhfooter.html" }}
