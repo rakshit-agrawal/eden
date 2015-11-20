@@ -1,26 +1,54 @@
 {{ include "qrh/qrhheader.html" }}
-    <div class="container-fluid">
+<style>
+    tr#qrhvolunteer_dob__row {
+        display: none;
+    }
+
+    tr#qrhvolunteer_role__row {
+        display: none;
+    }
+
+    button#hideFields {
+        display: none;
+    }
+</style>
+<div class="container-fluid">
     <div class="row">
         <div class="col-md-1"></div>
         <div class="col-md-10">
-          <h1>{{=message}}</h1>
+            <h1>{{=message}}</h1>
         </div>
-      </div>
-
-      <div class="row">
-        <div class="col-md-4"></div>
-        <div class="col-md-6">
-          {{=form}}
-        </div>
-      </div>
     </div>
-    <script type="text/javascript">
-      $( function () {
-        $('#showFields').on('click', function () {
-          $('.collapse').toggle();
-        });
-        $("#hrm_human_resource_start_date").datepicker( "setDate", new Date());
-        $('#hrm_human_resource_person_id_title__row').hide();
-      });
-    </script>
+
+    <div class="row">
+        <div class="col-md-4"></div>
+            {{=form}}
+    </div>
+                <div class="col-md-4"></div>
+
+        <button id="showFields" type="button" class="btn btn-success">Show optional Fields</button>
+        <button id="hideFields" type="button" class="btn btn-success">Hide extra Fields</button>
+    </div>
+</div>
+
+
+<script>
+
+    $("#showFields").on('click', function (e) {
+        {{for i in to_hide:}}
+        $("{{=i}}").show();
+        {{pass}}
+        $("#showFields").hide();
+        $("#hideFields").show();
+    });
+
+    $("#hideFields").on('click', function (e) {
+        {{for i in to_hide:}}
+        $("{{=i}}").hide();
+        {{pass}}
+
+        $("#showFields").show();
+        $("#hideFields").hide();
+    });
+</script>
 
