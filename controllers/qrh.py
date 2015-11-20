@@ -29,7 +29,7 @@ def nothing(function=None, results={}):
         return results
 
 
-def host_volunteer(function = None, results={}, category=None):
+def host_volunteer(function = None, results={}, category=None, page=None, item=None):
     if function == "base":
         results['name'] = "Volunteer"
         results['message'] = "I would like to"
@@ -106,15 +106,23 @@ def host_volunteer(function = None, results={}, category=None):
 
     elif function == "list":
         results['name'] = "Volunteers are:"
-        results['headers'] = ["ID", "Name", "Mobile no.", "Email", "Role", "Date of Birth", "Sex"]
+        results['headers'] = ["Name", "Mobile no.", "Email", "Role", "Date of Birth", "Sex", ""]
         results['entries'] = []
-        entries = db(s3db.qrhvolunteer.id>0).select(orderby=~s3db.qrhvolunteer.doj)
+        results['icon'] = "btn btn-success fa fa-user"
+        results['items_per_page'] = items_per_page = 5
+        results['page'] = page = page if not None else 0
+        limitby=(page*items_per_page,(page+1)*items_per_page+1)
+        entries = db(s3db.qrhvolunteer.id>0).select(orderby=~s3db.qrhvolunteer.doj, limitby=limitby)
         results['entries'] = entries
+
+    elif function == "delete":
+        db(s3db.qrhvolunteer.id==item).delete()
+        redirect(URL('qrh','list_entries',args=['volunteer',0]))
 
     return results
 
 
-def host_assets(function = None, results={}):
+def host_assets(function = None, results={}, category=None, page=None):
     if function == "base":
         results['name'] = "Assets"
         results['message'] = "I would like to"
@@ -142,6 +150,9 @@ def host_assets(function = None, results={}):
         results['name'] = "Assets are:"
         results['headers'] = []
         results['entries'] = []
+        results['icon'] = "btn btn-success fa fa-suitcase"
+        results['page'] = page = page if not None else 0
+        results['items_per_page'] = items_per_page = 5
 
     return results
 
@@ -262,8 +273,39 @@ def list_entries():
     else:
         redirect(URL('qrh','index'))
 
+    if len(request.args)>1:
+        page = int(request.args[1])
+    else:
+        page = 0
+
     try:
-        return_fields = HOSTS[host_type](function="list")
+        return_fields = HOSTS[host_type](function="list", page=page)
+    except KeyError, e:
+        redirect(URL('qrh','index'))
+
+    return_fields['host_type'] = host_type.title()
+    return_fields['module_list'] = [key.title() for key in HOSTS.keys() if key!="nothing"]
+
+    return return_fields
+
+
+def delete():
+    """
+
+    :return:
+    """
+    if len(request.args)>0:
+        host_type = request.args(0)
+    else:
+        redirect(URL('qrh','index'))
+
+    if len(request.args)>1:
+        item = int(request.args[1])
+    else:
+        redirect(URL('qrh','index'))
+
+    try:
+        return_fields = HOSTS[host_type](function="delete", item=item)
     except KeyError, e:
         redirect(URL('qrh','index'))
 

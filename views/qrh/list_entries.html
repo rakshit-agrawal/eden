@@ -4,7 +4,7 @@
     .custab {
         border: 1px solid #ccc;
         padding: 5px;
-        margin: 5% 0;
+        margin: 1% 0;
         box-shadow: 3px 3px 2px #ccc;
         transition: 0.5s;
     }
@@ -27,6 +27,8 @@
     <div class="col-md-4"></div>
 
     <div class="row col-md-6 col-md-offset-2 custyle">
+                        {{=A(" Add new", _class=icon, _href=URL('qrh','create_entry', user_signature=True,args=[request.args(0)]))}}
+
         <table class="table custab">
             <thead>
             <tr>
@@ -38,19 +40,29 @@
 
             </thead>
             {{for i,entry in enumerate(entries):}}
+            {{if i==items_per_page: break}}
 
             <tr>
-                <td>{{=i+1}}</td>
                 <td>{{=entry.name}}</td>
                 <td>{{=entry.mobile}}</td>
                 <td>{{=entry.email}}</td>
                 <td>{{=entry.role}}</td>
                 <td>{{=entry.dob}}</td>
                 <td>{{=entry.sex}}</td>
+                <td>{{=A(" Delete", _class="btn btn-danger fa fa-trash", _href=URL('qrh','delete', user_signature=True,args=[request.args(0),entry.id]))}}</td>
             </tr>
             {{pass}}
 
         </table>
+
+    {{if page:}}
+        {{=A("",_class="fa fa-chevron-left left", _href=URL(args=['volunteer',page-1]))}}
+
+    {{pass}}
+
+    {{if len(entries)>items_per_page:}}
+    {{=A("",_class="fa fa-chevron-right right", _href=URL(args=['volunteer',page+1]))}}
+    {{pass}}
     </div>
 
 

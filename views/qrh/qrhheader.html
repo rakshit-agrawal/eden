@@ -17,8 +17,11 @@
     {{if s3.debug:}}{{=s3base.s3_include_debug_css()}}{{else:}}
      {{# Built by /static/scripts/tools/build.sahana.py }}
      <link href="/{{=appname}}/static/themes/{{=theme}}/eden.min.css" rel="stylesheet" type="text/css" />
+
     {{pass}}
     {{include "scripts_top.html"}}
+        <link href="{{=URL('static', 'font-awesome-4.4.0/css/font-awesome.css')}}" rel="stylesheet" type="text/css" />
+
   </head>
   <body>
     <nav class="navbar navbar-default">
